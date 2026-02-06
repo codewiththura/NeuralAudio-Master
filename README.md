@@ -69,3 +69,32 @@ You can adjust the target loudness in the script configuration section at the to
 
     Target loudness level (Broadcast standard: -23, Web/Podcast: -16)
     TARGET_LOUDNESS = -23
+
+## Troubleshooting Installation Errors
+
+If you encounter errors during installation mentioned "Rust", "Cargo", or "Microsoft Visual C++ 14.0", this is a common issue on Windows when using very new versions of Python (like 3.12).
+
+### The Problem
+Some deep learning libraries may not yet have pre-built files ("wheels") for the absolute latest Python version. When this happens, `pip` tries to compile the code from scratch, which fails if you don't have C++ and Rust compilers installed.
+
+### The Easy Fix: Use Python 3.10
+Instead of installing 4GB+ of C++ build tools, the simplest solution is to use **Python 3.10**. The libraries are already pre-compiled for this version, so they install instantly.
+
+**Steps to fix:**
+
+1.  **Install Python 3.10:**
+    Download it from the [official Python website](https://www.python.org/downloads/release/python-31011/) (ensure you grab the Windows installer).
+
+2.  **Create a specific Virtual Environment:**
+    Delete your old `venv` folder, then run this command to force a Python 3.10 environment:
+    ```bash
+    py -3.10 -m venv venv
+    ```
+
+3.  **Activate & Install:**
+    ```bash
+    venv\Scripts\activate
+    pip install -r requirements.txt
+    ```
+
+This method bypasses the need for "Microsoft Visual C++ Build Tools" entirely.
