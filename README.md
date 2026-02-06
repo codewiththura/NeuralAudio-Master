@@ -35,11 +35,11 @@ A dedicated utility for strict loudness compliance without altering the sound ch
 
 ### Setup
 1.  Clone this repository or download the scripts.
-2.  Install the required dependencies
+2.  Install the required dependencies using the requirements file.
 
 Note: If you encounter installation errors on Windows, ensure you have the Microsoft C++ Build Tools installed.)
 
-    pip install soundfile pyloudnorm pydub deepfilternet
+    pip install -r requirements.txt
 
 ## Usage
 
