@@ -8,8 +8,7 @@ import logging
 from contextlib import contextmanager
 import soundfile as sf
 import pyloudnorm as pyln
-from pydub import AudioSegment
-from shutil import which
+import av
 
 # --- DeepFilterNet Imports ---
 from df.enhance import enhance, init_df, load_audio, save_audio
@@ -63,11 +62,6 @@ def spinner(message="Processing"):
         time.sleep(0.1)
     print(f"\r{message}... Done!   ", flush=True)
 
-def check_dependencies():
-    if which("ffmpeg") is None and not os.path.exists("ffmpeg.exe"):
-        print("\nError: FFmpeg not found.", flush=True)
-        sys.exit(1)
-
 def init_deepfilter_model():
     """Initialize the DeepFilterNet model with a spinner for feedback."""
     global df_model, df_state, is_loading
@@ -104,24 +98,34 @@ def get_input_files():
         return "QUIT"
 
     file_list = []
+    
+    # CASE 1: Default Folder
     if not user_input:
         target_dir = os.path.join(os.getcwd(), DEFAULT_INPUT_FOLDER)
         if not os.path.exists(target_dir):
             os.makedirs(target_dir)
+            print_separator()
             print(f"Created default folder: '{DEFAULT_INPUT_FOLDER}'", flush=True)
+            print("Please place your audio files inside it and run the script again.")
+            print_separator()
+
         
         for f in os.listdir(target_dir):
             if f.lower().endswith(SUPPORTED_EXTENSIONS):
                 file_list.append(os.path.join(target_dir, f))
                 
+    # CASE 2: Dragged Directory
     elif os.path.isdir(user_input):
         for f in os.listdir(user_input):
             if f.lower().endswith(SUPPORTED_EXTENSIONS):
                 file_list.append(os.path.join(user_input, f))
 
+    # CASE 3: Single File
     elif os.path.isfile(user_input):
         if user_input.lower().endswith(SUPPORTED_EXTENSIONS):
             file_list.append(user_input)
+        else:
+            print(f"\nError: File format not supported. Supported: {SUPPORTED_EXTENSIONS}")
             
     return file_list
 
@@ -134,18 +138,40 @@ def convert_to_wav(file_path):
     global is_loading
     filename = os.path.basename(file_path)
     wav_path = os.path.join(TEMP_CONVERT_DIR, os.path.splitext(filename)[0] + ".wav")
+    
     try:
         is_loading = True
         t = threading.Thread(target=spinner, args=(f"Converting {filename}",))
         t.start()
-        audio = AudioSegment.from_file(file_path)
-        audio = audio.set_frame_rate(48000) 
-        audio.export(wav_path, format="wav")
+        
+        with av.open(file_path) as input_container:
+            in_stream = input_container.streams.audio[0]
+            
+            with av.open(wav_path, mode='w', format='wav') as output_container:
+                out_stream = output_container.add_stream('pcm_s16le', rate=48000)
+                out_stream.layout = 'stereo'
+                
+                # Resampler to ensure 48k
+                resampler = av.AudioResampler(format='s16', layout='stereo', rate=48000)
+
+                for packet in input_container.demux(in_stream):
+                    for frame in packet.decode():
+                        frame.pts = None
+                        out_frames = resampler.resample(frame)
+                        for out_frame in out_frames:
+                            for packet in out_stream.encode(out_frame):
+                                output_container.mux(packet)
+                
+                for packet in out_stream.encode(None):
+                    output_container.mux(packet)
+
         is_loading = False
         t.join()
         return wav_path
     except Exception as e:
         is_loading = False
+        t.join()
+        print(f"\nError converting {filename}: {e}")
         return None
 
 def normalize_loudness(input_file):
@@ -193,23 +219,48 @@ def convert_to_final_mp3(wav_file, original_filename):
         is_loading = True
         t = threading.Thread(target=spinner, args=("Finalizing to .mp3",))
         t.start()
+        
         name_no_ext = os.path.splitext(original_filename)[0]
         mp3_path = os.path.join(OUTPUT_DIR, f"{name_no_ext}.mp3")
-        audio = AudioSegment.from_wav(wav_file)
-        audio.export(mp3_path, format="mp3", bitrate="320k")
-        if os.path.exists(wav_file): os.remove(wav_file)
+        
+        with av.open(wav_file) as input_container:
+            in_stream = input_container.streams.audio[0]
+            
+            with av.open(mp3_path, mode='w', format='mp3') as output_container:
+                # 320k bitrate = 320000
+                out_stream = output_container.add_stream('mp3', rate=in_stream.rate)
+                out_stream.bit_rate = 320000 
+                
+                for packet in input_container.demux(in_stream):
+                    for frame in packet.decode():
+                        frame.pts = None
+                        for p in out_stream.encode(frame):
+                            output_container.mux(p)
+                
+                for p in out_stream.encode(None):
+                    output_container.mux(p)
+
+        try:
+            os.remove(wav_file)
+        except:
+            pass
+
         is_loading = False
         t.join()
         return True
     except Exception as e:
         is_loading = False
+        t.join()
+        print(f"\nError creating MP3: {e}")
         return False
-
+        
 def cleanup_folders(keep_normalized):
     if os.path.exists(TEMP_CONVERT_DIR):
         shutil.rmtree(TEMP_CONVERT_DIR, ignore_errors=True)
     if not keep_normalized and os.path.exists(INTERMEDIATE_DIR):
         shutil.rmtree(INTERMEDIATE_DIR, ignore_errors=True)
+    else:
+        print(f"Normalized audio files saved in: {INTERMEDIATE_DIR}")
 
 def main():
     try:
@@ -218,7 +269,6 @@ def main():
         print("      (Supports: .ogg, .flac, .wav, .mp3 -> Output: .mp3)", flush=True)
         print_separator()
 
-        check_dependencies()
         prepare_working_dirs()
         
         init_deepfilter_model()
@@ -233,7 +283,7 @@ def main():
                 continue
 
             print(f"\nQueue: {len(files_to_process)} file(s) ready.", flush=True)
-            keep_norm_input = input("Save normalized files? (y/N): ").strip().lower()
+            keep_norm_input = input("Save normalized audio files before AI enhancement seperately? (y/N) [Default: N]: ").strip().lower()
             keep_normalized = keep_norm_input == 'y'
 
             print_separator()
@@ -258,7 +308,7 @@ def main():
             cleanup_folders(keep_normalized)
             print_separator()
             
-            cont = input("Process next batch? (Y/n): ").strip().lower()
+            cont = input("Process the next audio batch? (Y/n) [Default: Y]: ").strip().lower()
             if cont == 'n': break
 
     except KeyboardInterrupt:
