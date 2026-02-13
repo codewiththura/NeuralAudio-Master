@@ -6,7 +6,7 @@ A professional suite of Python automation Neural Network Processing (NNP) tools 
 ## Key Features
 
 * **Standalone Operation:** Powered by `PyAV`. No need to install FFmpeg or configure system PATH variables.
-* **AI Denoising:** Uses DeepFilterNet (Neural Network) to remove background noise while preserving voice quality.
+* **AI Denoising:** Uses Neural Network to remove background noise while preserving voice quality.
 * **Loudness Compliance:** strictly adheres to broadcast standards (EBU R128, AES) with selectable presets.
 * **Batch Workflow:** Process entire folders at once with drag-and-drop support.
 * **Continuous Processing:** Tools run in a loop, allowing you to process multiple batches without restarting.
